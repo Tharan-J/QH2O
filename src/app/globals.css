@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #0EA5E9;
+  --color-secondary: #0284c7;
+  --color-background: #F1F5F9;
+  --color-foreground: #0f172a;
+  
+  --color-card: #ffffff;
+  --color-card-foreground: #0f172a;
+  
+  --radius-xl: 0.75rem;
+}
+
+:root {
+  --background: #F1F5F9;
+  --foreground: #0f172a;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+}
+
+/* Base styles to remove default outline */
+:focus-visible {
+  outline: 2px solid #0EA5E9;
+  outline-offset: 2px;
+}
+
+/* Hide scrollbar for an immersive experience */
+::-webkit-scrollbar {
+  width: 0px;
+  background: transparent;
+}
