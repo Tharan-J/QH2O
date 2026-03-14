@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useState, useEffect } from "react";
 import { ArrowLeft, BrainCircuit, Droplet, Activity, ShieldCheck, AlertTriangle, ArrowUpRight, ArrowDownRight, Wind, X } from "lucide-react";
 import Link from "next/link";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
@@ -35,33 +35,106 @@ export default function DeviceAnalysisPage({ params }: { params: Promise<{ id: s
   
   const [selectedMetric, setSelectedMetric] = useState<any>(null);
 
-  // Mock checking if the device is safe
-  const isTNK = id.includes("TNK");
+  const [currentData, setCurrentData] = useState({ pH: 7.2, tds: 310, turbidity: 0.9, orp: 710 });
+  const [status, setStatus] = useState("DRINKABLE");
+  const [riskScore, setRiskScore] = useState(92);
+  const [aiInsight, setAiInsight] = useState("Loading AI analysis...");
+  
+  const isUnsafe = status === "NOT DRINKABLE";
   const isMED = id.includes("MED");
   const isLAB = id.includes("LAB");
   const isGRD = id.includes("GRD");
-  const isUnsafe = id.includes("118") || id.includes("04") || id.includes("UNSAFE") || isTNK;
-
   let mockPrefs: any = {};
   if (isMED) mockPrefs = { tds: { max: 400 } };
   if (isLAB) mockPrefs = { pH: { max: 7.8 } };
   if (isGRD) mockPrefs = { turbidity: { max: 10 } };
-  
-  // Set mock current values based on safe/unsafe or specific mocked devices
-  let currentData = {
-    pH: isUnsafe ? 9.2 : 7.2,
-    tds: isUnsafe ? 850 : 310,
-    turbidity: isUnsafe ? 8.4 : 0.9,
-    orp: isUnsafe ? 400 : 710,
-  };
-  
-  if (isTNK) currentData = { pH: 6.4, tds: 1100, turbidity: 12.0, orp: 210 };
-  else if (isMED) currentData = { pH: 7.2, tds: 480, turbidity: 0.9, orp: 710 }; // TDS exceeds user pref
-  else if (isLAB) currentData = { pH: 7.9, tds: 280, turbidity: 0.5, orp: 720 }; // pH exceeds user pref
-  else if (isGRD) currentData = { pH: 7.1, tds: 350, turbidity: 12.0, orp: 600 }; // turbidity exceeds user pref
 
-  const riskScore = isTNK ? 48 : (isUnsafe ? 32 : 92);
-  const status = isUnsafe ? "NOT DRINKABLE" : "DRINKABLE";
+  async function generateAIInsight(data: any) {
+    const prompt = `
+You are an environmental water quality analysis AI.
+
+Analyze the following water telemetry data.
+
+pH: ${data.pH}
+TDS: ${data.tds} ppm
+Turbidity: ${data.turbidity} NTU
+ORP: ${data.orp} mV
+
+WHO safe ranges:
+pH: 6.5–8.5
+TDS: <600 ppm
+Turbidity: <5 NTU
+ORP: >650 mV
+
+Provide:
+1. Overall water quality interpretation
+2. Possible anomaly detection
+3. Simple recommendation for operators
+Keep the response under 80 words.
+`;
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+        }
+      );
+      const result = await response.json();
+      return result.candidates?.[0]?.content?.parts?.[0]?.text;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const res = await fetch("/api/readings");
+        const data = await res.json();
+        
+        let targetData = null;
+        for (const key in data) {
+          if (data[key].device_id === id) {
+            targetData = data[key];
+            break;
+          }
+        }
+        
+        if (!targetData && id === "DEMO-001") {
+          targetData = { ph: 7.2, tds: 310, turbidity: 0.9, orp: 710, status: "Drinkable" };
+        }
+        
+        if (targetData) {
+          setCurrentData({ pH: targetData.ph, tds: targetData.tds, turbidity: targetData.turbidity, orp: targetData.orp });
+          setStatus(targetData.status?.toUpperCase() || "DRINKABLE");
+          // Calculate arbitrary mock score based on status
+          setRiskScore(targetData.status?.toUpperCase() === "DRINKABLE" ? 92 : 45);
+        }
+      } catch (err) {
+        // Keep keeping current state on error
+      }
+    };
+    fetchData();
+    const intervalIdx = setInterval(fetchData, 5000);
+    return () => clearInterval(intervalIdx);
+  }, [id]);
+
+  useEffect(() => {
+    // Only run AI for DEMO-001 when currentData changes
+    const runAI = async () => {
+      if (id === "DEMO-001") {
+        const insight = await generateAIInsight(currentData);
+        if (insight) {
+          setAiInsight(insight);
+        } else {
+          setAiInsight("AI Insight unavailable. Displaying rule-based analysis.\n\nAll parameters currently within WHO safe limits.");
+        }
+      }
+    };
+    runAI();
+  }, [currentData, id]);
 
   const metrics = [
     {
@@ -194,21 +267,21 @@ export default function DeviceAnalysisPage({ params }: { params: Promise<{ id: s
             
             <div className="space-y-6 relative z-10">
               <div>
-                <p className="text-slate-300 text-lg leading-relaxed font-medium">
-                  {isUnsafe 
+                <p className="text-slate-300 text-sm leading-relaxed font-medium whitespace-pre-wrap">
+                  {id === "DEMO-001" ? aiInsight : (isUnsafe 
                     ? "Turbidity and TDS increased sharply after recent rainfall data. Water likely contains suspended agricultural runoff and sediments."
                     : (isMED || isLAB || isGRD) ? "Water is within WHO drinking water limits, but exceeds the user's preferred threshold for specific operations." 
-                    : "Stable readings across the board. No correlation found with recent regional pipeline flushing. Water chemistry is balanced."}
+                    : "Stable readings across the board. No correlation found with recent regional pipeline flushing. Water chemistry is balanced.")}
                 </p>
               </div>
               
               <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-5">
                 <div className="text-sky-400 font-bold text-xs uppercase tracking-widest mb-2">Recommendation</div>
                 <p className="text-white font-bold leading-tight">
-                  {isUnsafe 
+                  {id === "DEMO-001" ? "Review AI insight above. Water is being actively monitored." : (isUnsafe 
                     ? "Allow settling and boil water before consumption. Discontinue direct intake immediately." 
                     : (isMED || isLAB || isGRD) ? "Monitor closely. Adjust specialized treatment processes to bring parameters within preferred tolerance."
-                    : "Safe for standard consumption and industrial use."}
+                    : "Safe for standard consumption and industrial use.")}
                 </p>
               </div>
             </div>

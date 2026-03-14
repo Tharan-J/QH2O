@@ -9,6 +9,7 @@ import clsx from "clsx";
 export default function CommunityDashboard() {
   const [selectedDevice, setSelectedDevice] = useState<any>(null);
   const [userRole, setUserRole] = useState<string>("industry");
+  const [apiDevices, setApiDevices] = useState<any[]>([]);
   
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -17,6 +18,72 @@ export default function CommunityDashboard() {
         setUserRole(storedRole);
       }
     }
+
+    const fetchData = async () => {
+      try {
+        const res = await fetch("/api/readings");
+        const data = await res.json();
+        
+        let demoExists = false;
+        const fetched = [];
+        for (const key in data) {
+          const d = data[key];
+          if (d.device_id === "DEMO-001") demoExists = true;
+          
+          let currentScore = 92;
+          if (d.ph < 6.5 || d.ph > 8.5) currentScore -= 20;
+          if (d.tds > 500) currentScore -= 30;
+          if (d.turbidity > 5) currentScore -= 25;
+          if (d.orp < 300 || d.orp > 800) currentScore -= 15;
+          if (currentScore < 0) currentScore = 15;
+
+          fetched.push({
+            id: d.device_id,
+            name: d.device_id === "DEMO-001" ? "Demo" : d.device_id,
+            location: d.device_id === "DEMO-001" ? "IIT Madras" : "Unknown",
+            role: "industry",
+            status: d.status && d.status.toUpperCase() === "DRINKABLE" ? "DRINKABLE" : "NOT DRINKABLE", // Map status logically
+            score: currentScore,
+            lastReading: d.timestamp ? new Date(d.timestamp * 1000).toLocaleTimeString() : "Just now",
+            x: d.device_id === "DEMO-001" ? 50 : 60,
+            y: d.device_id === "DEMO-001" ? 50 : 60,
+          });
+        }
+
+        if (!demoExists) {
+          fetched.push({
+            id: "DEMO-001",
+            name: "Demo",
+            location: "IIT Madras",
+            role: "industry",
+            status: "DRINKABLE",
+            score: 92,
+            lastReading: "Just now",
+            x: 50,
+            y: 50,
+          });
+        }
+        // Deduplicate over existing mock data if needed, or just set it
+        setApiDevices(fetched);
+      } catch (err) {
+        // Fallback demo device
+        setApiDevices([{
+          id: "DEMO-001",
+          name: "Demo",
+          location: "IIT Madras",
+          role: "industry",
+          status: "DRINKABLE",
+          score: 92,
+          lastReading: "Just now",
+          x: 50,
+          y: 50,
+        }]);
+      }
+    };
+
+    fetchData();
+    const intervalId = setInterval(fetchData, 5000);
+    return () => clearInterval(intervalId);
   }, []);
 
   const allDevices = [
@@ -178,7 +245,16 @@ export default function CommunityDashboard() {
     }
   ];
 
-  const devices = allDevices.filter(d => d.role === userRole);
+  // Merge API data over existing mock devices
+  // Merge API data over existing mock devices safely
+  const combinedDevices = allDevices.map(d => {
+    const apiD = apiDevices.find(ad => ad.id === d.id);
+    if (!apiD) return d;
+    return { ...d, status: apiD.status, score: apiD.score, lastReading: apiD.lastReading }; // retain mock name, location, x, y
+  });
+  const newApiDevices = apiDevices.filter(ad => ad.id && !allDevices.some(d => d.id === ad.id));
+  const finalDevices = [...combinedDevices, ...newApiDevices];
+  const devices = finalDevices.filter(d => d.role === userRole);
 
 
   const getStatusConfig = (status: string) => {

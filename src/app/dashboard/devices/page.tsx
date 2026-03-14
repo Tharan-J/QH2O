@@ -12,6 +12,7 @@ export default function MyDevicesPage() {
   const [showConfig, setShowConfig] = useState(false);
   
   const [userRole, setUserRole] = useState<string>("industry");
+  const [apiDevices, setApiDevices] = useState<any[]>([]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -20,6 +21,61 @@ export default function MyDevicesPage() {
         setUserRole(storedRole);
       }
     }
+
+    const fetchData = async () => {
+      try {
+        const res = await fetch("/api/readings");
+        const data = await res.json();
+        
+        let demoExists = false;
+        const fetched = [];
+        for (const key in data) {
+          const d = data[key];
+          if (d.device_id === "DEMO-001") demoExists = true;
+          
+          fetched.push({
+            id: d.device_id,
+            name: d.device_id === "DEMO-001" ? "Demo" : d.device_id,
+            location: d.device_id === "DEMO-001" ? "IIT Madras" : "Unknown",
+            status: "Live",
+            role: "industry",
+            lastReading: d.timestamp ? new Date(d.timestamp * 1000).toLocaleTimeString() : "Just now",
+            data: { pH: d.ph, tds: d.tds, turbidity: d.turbidity, orp: d.orp },
+            preferences: {}
+          });
+        }
+
+        if (!demoExists) {
+          fetched.push({
+            id: "DEMO-001",
+            name: "Demo",
+            location: "IIT Madras",
+            status: "Live",
+            role: "industry",
+            lastReading: "Just now",
+            data: { pH: 7.2, tds: 310, turbidity: 0.9, orp: 710 },
+            preferences: {}
+          });
+        }
+        
+        setApiDevices(fetched);
+      } catch (err) {
+        setApiDevices([{
+          id: "DEMO-001",
+          name: "Demo",
+          location: "IIT Madras",
+          status: "Live",
+          role: "industry",
+          lastReading: "Just now",
+          data: { pH: 7.2, tds: 310, turbidity: 0.9, orp: 710 },
+          preferences: {}
+        }]);
+      }
+    };
+
+    fetchData();
+    const intervalId = setInterval(fetchData, 5000);
+    return () => clearInterval(intervalId);
   }, []);
 
   const [allDevices, setDevices] = useState<any[]>([
@@ -95,7 +151,24 @@ export default function MyDevicesPage() {
     }
   ]);
 
-  const devices = allDevices.filter(d => d.role === userRole);
+  const combinedDevices = allDevices.map(d => {
+    const apiD = apiDevices.find(ad => ad.id === d.id);
+    if (!apiD) return d;
+    return { 
+      ...d, 
+      status: apiD.status,
+      lastReading: apiD.lastReading,
+      data: {
+        pH: apiD.data.pH ?? d.data.pH,
+        tds: apiD.data.tds ?? d.data.tds,
+        turbidity: apiD.data.turbidity ?? d.data.turbidity,
+        orp: apiD.data.orp ?? d.data.orp,
+      }
+    };
+  });
+  const newApiDevices = apiDevices.filter(ad => ad.id && !allDevices.some(d => d.id === ad.id));
+  const finalDevices = [...combinedDevices, ...newApiDevices];
+  const devices = finalDevices.filter(d => d.role === userRole);
 
   const [newDevice, setNewDevice] = useState({ 
     name: "", id: "", location: "", 
